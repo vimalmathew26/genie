@@ -1,4 +1,4 @@
-# Genie — Architecture
+# Genie - Architecture
 
 This document is the deeper companion to the README. It covers the four-layer design, the brain loop, and the engineering decisions that produced the reliability numbers.
 
@@ -13,7 +13,7 @@ Genie is built as four strict layers. Each layer consumes the one below it as a 
 | 3. Observation Capture | `observation.py` | Recording what actually happened, structurally, at zero token cost |
 | 4. Brain Loop | `orchestrator.py` + 15 extracted modules | ReAct orchestration, planning, dispatch, budgets, recovery |
 
-## Layer 1 — Window identity
+## Layer 1 - Window identity
 
 The naive approach (`xdotool search --name firefox`) breaks the moment two windows match. Layer 1 replaces it with a PID-keyed session registry: every app Genie launches gets a validated X11 window ID, a stable label, and a background monitor.
 
@@ -26,21 +26,21 @@ Key mechanics:
 - Chromium and Electron apps get monotonically assigned, socket-probed debug ports with no recycling, and stale browser locks are cleaned before every CDP launch.
 - Concurrency discipline: two locks (registry, port ledger), never held simultaneously, and never held across an X11 round-trip. X connections are thread-local with atoms cached at creation.
 
-## Layer 2 — Element resolution
+## Layer 2 - Element resolution
 
 The design rule: **the LLM never emits coordinates.** It emits semantic targets, `(app_label, role, name)`, and Layer 2 turns them into clicks, keystrokes, and reads. Three tiers:
 
-**Tier 1, AT-SPI** — the Linux accessibility tree, primary for native apps. Resolution is a BFS over the tree with role aliasing. The interesting contract is ambiguity handling: zero matches raise a typed error; two or more matches trigger the vision tier for disambiguation rather than guessing.
+**Tier 1, AT-SPI** - the Linux accessibility tree, primary for native apps. Resolution is a BFS over the tree with role aliasing. The interesting contract is ambiguity handling: zero matches raise a typed error; two or more matches trigger the vision tier for disambiguation rather than guessing.
 
-**Tier 2, CDP** — Chrome DevTools Protocol for browser targets. BFS over the accessibility tree via `Accessibility.getFullAXTree`, with JS fast paths for the cases where that times out on heavy pages: unnamed input fields resolve via a "find the best input" script, and Nth-search-result navigation goes straight to `Page.navigate`, bypassing the AX tree entirely. Stale DOM nodes surface as typed transient errors that trigger a fresh BFS on retry.
+**Tier 2, CDP** - Chrome DevTools Protocol for browser targets. BFS over the accessibility tree via `Accessibility.getFullAXTree`, with JS fast paths for the cases where that times out on heavy pages: unnamed input fields resolve via a "find the best input" script, and Nth-search-result navigation goes straight to `Page.navigate`, bypassing the AX tree entirely. Stale DOM nodes surface as typed transient errors that trigger a fresh BFS on retry.
 
-**Tier 3, Set-of-Marks vision** — the fallback, triggered on ambiguity (2+ matches) or, in the discovery variant, on zero matches where the tree should have had one. A window screenshot gets numbered markers overlaid at candidate positions; the vision model returns one integer; the click lands at that marker's coordinates. ~$0.0016 per call, paid only when deterministic resolution has already failed.
+**Tier 3, Set-of-Marks vision** - the fallback, triggered on ambiguity (2+ matches) or, in the discovery variant, on zero matches where the tree should have had one. A window screenshot gets numbered markers overlaid at candidate positions; the vision model returns one integer; the click lands at that marker's coordinates. ~$0.0016 per call, paid only when deterministic resolution has already failed.
 
 Terminal apps get a fourth path: no semantic tree exists, so typing goes directly to the window and element resolution is refused with a typed error rather than faked.
 
 Every resolution failure is classified into a four-class exception hierarchy: `TransientError`, `EnvironmentalError`, `ResourceError`, `UnrecoverableError`. This taxonomy is load-bearing; Layer 4's entire recovery strategy keys off it.
 
-## Layer 3 — Observation
+## Layer 3 - Observation
 
 A passive recording engine with three hard rules: it never calls an LLM, never judges task progress, and never raises (unconditional no-propagation, enforced by a last-resort catch). The orchestrator calls `observe()` from a `finally` block, so every action, successful or failed, produces a structured JSONL entry: action, args (truncated), derived result class, per-action observation payload, error, duration.
 
@@ -48,7 +48,7 @@ Result derivation is a fixed-order case analysis, not heuristics: shell commands
 
 Two output streams: `genie_success.jsonl` (clean trajectories) and `genie_incomplete.jsonl` (everything). The split exists because the success stream doubles as fine-tuning trace data; observation was designed from the start to make every run a potential training example.
 
-## Layer 4 — The brain loop
+## Layer 4 - The brain loop
 
 A ReAct orchestrator: call the model, parse `<think>` + `<act>` (strict JSON), validate against the action schema, dispatch, observe, repeat, under a hard iteration cap and a per-task cost budget.
 
